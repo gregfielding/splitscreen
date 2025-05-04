@@ -132,7 +132,7 @@ def get_topic_data(slug):
                 {"role": "system", "content": "You are a neutral political analyst summarizing US media bias."},
                 {"role": "user", "content": prompt}
             ],
-            temperature: 0.4
+            temperature=0.4
         )
 
         summary = chat.choices[0].message.content.strip()
