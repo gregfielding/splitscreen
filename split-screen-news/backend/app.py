@@ -63,7 +63,7 @@ def get_top_topics():
         joined_headlines = "\n".join(f"- {title}" for title in headlines)
         prompt = (
             "You are a political news analyst. Group the following U.S. news headlines into 4-6 topic clusters. "
-            "Return a JSON array of lowercase hyphenated topic slugs like ['trump-trial', 'student-loans'] based on the content.\n"
+            "Return a valid JSON array using double quotes, like [\"trump-trial\", \"student-loans\"]\n"
             f"Headlines:\n{joined_headlines}"
         )
 
