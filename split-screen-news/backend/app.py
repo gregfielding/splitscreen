@@ -28,7 +28,7 @@ def fetch_mediastack_headlines():
             'languages': 'en',
             'countries': 'us',
             'sort': 'published_desc',
-            'limit': 40
+            'limit': 60
         }
         response = requests.get(MEDIASTACK_URL, params=params)
         if response.status_code == 429:
@@ -50,27 +50,29 @@ def fetch_mediastack_headlines():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/topics/today")
-def get_top_topics():
+def get_dynamic_topic_map():
     try:
         params = {
             'access_key': MEDIASTACK_KEY,
             'languages': 'en',
             'countries': 'us',
             'sort': 'published_desc',
-            'limit': 40
+            'limit': 60
         }
         response = requests.get(MEDIASTACK_URL, params=params)
         if response.status_code == 429:
             return jsonify({"error": "Mediastack rate limit hit. Please wait and try again."}), 429
         response.raise_for_status()
         data = response.json()
-        headlines = [article["title"] for article in data.get("data", [])]
 
+        headlines = [article["title"] for article in data.get("data", []) if article.get("title")]
         joined = "\n".join(f"- {title}" for title in headlines)
+
         prompt = (
-            "You are a media analyst. Group these headlines into 4-6 story clusters and return "
-            "a JSON array of lowercase hyphenated topic slugs like: [\"trump-trial\", \"student-loans\"]\n\n"
-            f"{joined}"
+            "Group these headlines into 8–12 topic categories. Return a JSON object with category labels as keys and "
+            "lists of 2–5 lowercase hyphenated topic slugs as values. Example:\n"
+            "{\"Politics\": [\"trump-trial\", \"student-loans\"]}\n\n"
+            f"Headlines:\n{joined}"
         )
 
         chat = client.chat.completions.create(
@@ -79,12 +81,20 @@ def get_top_topics():
             temperature=0.3
         )
 
-        content = chat.choices[0].message.content.strip()
-        topics = json.loads(content)
-        return jsonify({"topics": topics})
-
+        structured = json.loads(chat.choices[0].message.content.strip())
+        return jsonify(structured)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+def dedupe_articles(articles):
+    seen = set()
+    unique = []
+    for a in articles:
+        key = a["title"].strip().lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(a)
+    return unique
 
 @app.route("/api/topic/<slug>")
 def get_topic_data(slug):
@@ -116,7 +126,8 @@ def get_topic_data(slug):
                 if articles:
                     break
 
-        article_texts = [f"{a.get('source', '')}: {a['title']}" for a in articles if 'title' in a]
+        deduped = dedupe_articles(articles)
+        article_texts = [f"{a.get('source', '')}: {a['title']}" for a in deduped if 'title' in a]
         sample = "\n".join(article_texts[:12])
 
         prompt = (
@@ -141,8 +152,8 @@ def get_topic_data(slug):
             "ai_summary": summary,
             "comparison": "This section will later compare left vs right framing in more detail.",
             "articles": {
-                "left": articles[:3],
-                "right": articles[3:6]
+                "left": deduped[:3],
+                "right": deduped[3:6]
             },
             "commentary": {
                 "left": [],
@@ -156,16 +167,6 @@ def get_topic_data(slug):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-def dedupe_stories(stories):
-    seen = set()
-    unique = []
-    for s in stories:
-        key = s["title"].strip().lower()
-        if key not in seen:
-            seen.add(key)
-            unique.append(s)
-    return unique
 
 @app.route("/api/topstories")
 def get_top_stories():
@@ -201,7 +202,7 @@ def get_top_stories():
                     link = url + link
                 results.append({"source": name, "title": text, "url": link})
 
-        deduped = dedupe_stories(results)
+        deduped = dedupe_articles(results)
         return jsonify({"top_stories": deduped})
 
     except Exception as e:
