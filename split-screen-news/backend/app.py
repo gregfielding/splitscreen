@@ -1,6 +1,5 @@
 import os
 import json
-import re
 import requests
 import openai
 from flask import Flask, jsonify
@@ -9,9 +8,11 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+# Load keys
 MEDIASTACK_KEY = os.getenv("MEDIASTACK_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MEDIASTACK_URL = "http://api.mediastack.com/v1/news"
+
 openai.api_key = OPENAI_API_KEY
 
 @app.route("/")
@@ -48,6 +49,7 @@ def fetch_mediastack_headlines():
 @app.route("/api/topics/today")
 def get_top_topics():
     try:
+        # Fetch headlines
         params = {
             'access_key': MEDIASTACK_KEY,
             'languages': 'en',
@@ -62,28 +64,27 @@ def get_top_topics():
 
         joined_headlines = "\n".join(f"- {title}" for title in headlines)
         prompt = (
-            "You are a political news analyst. Group the following U.S. news headlines into 4-6 topic clusters. "
-            "Return a valid JSON array using double quotes, like [\"trump-trial\", \"student-loans\"]\n"
+            "Group the following U.S. news headlines into 4–6 topic clusters.\n"
+            "Return only a valid JSON array of lowercase hyphenated topic slugs like:\n"
+            "[\"trump-trial\", \"student-loans\"]\n\n"
             f"Headlines:\n{joined_headlines}"
         )
 
         chat = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
+            response_format="json",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that outputs clean JSON."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "user",
+                    "content": prompt
+                }
             ],
             temperature=0.3
         )
 
-        raw = chat.choices[0].message.content.strip()
-        match = re.search(r"\[(.*?)\]", raw, re.DOTALL)
-        if not match:
-            return jsonify({"error": "OpenAI response not parsable", "raw": raw}), 500
-
-        json_string = "[" + match.group(1).strip() + "]"
-        topics = json.loads(json_string)
+        topics = json.loads(chat.choices[0].message.content.strip())
         return jsonify({"topics": topics})
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -91,10 +92,8 @@ def get_top_topics():
 def get_topic_data(slug):
     try:
         if slug == "top-headlines":
-            # Use cached raw headlines
             res = requests.get("http://localhost:5000/api/headlines/raw")
         else:
-            # Fresh search for topic
             params = {
                 'access_key': MEDIASTACK_KEY,
                 'languages': 'en',
@@ -112,16 +111,22 @@ def get_topic_data(slug):
         joined = "\n".join(article_texts[:12])
 
         prompt = (
-            f"Summarize the media coverage of the topic '{slug.replace('-', ' ')}'. "
-            f"Group the reporting into left-leaning and right-leaning perspectives if applicable."
-            f" Here are sample headlines:\n{joined}"
+            f"Summarize how the media is covering the topic '{slug.replace('-', ' ')}'. "
+            "Group coverage into left-leaning and right-leaning perspectives where possible. "
+            f"Here are some article headlines:\n{joined}"
         )
 
         chat = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful, unbiased political media analyst."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": "You are a helpful, unbiased political media analyst."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
             ],
             temperature=0.4
         )
