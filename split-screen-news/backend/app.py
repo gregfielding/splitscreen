@@ -1,6 +1,7 @@
 import os
 import requests
 import openai
+import json
 from flask import Flask, jsonify
 from flask_cors import CORS
 
@@ -80,7 +81,7 @@ def get_top_topics():
         )
 
         result = chat.choices[0].message.content.strip()
-        return jsonify({"topics": eval(result)})
+        return jsonify({"topics": json.loads(result)})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
