@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Split Screen News</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+  <div class="max-w-4xl mx-auto p-6 text-center">
+    <h1 class="text-4xl font-bold text-blue-700 mb-2">📰 Split Screen News</h1>
+    <p id="quoteBox" class="text-gray-700 italic mb-6">“Placeholder quote…”<br><span class="text-sm">– Author</span></p>
+    <ul id="leftNewsList" class="text-left mt-10 space-y-4"></ul>
+  </div>
+  <script>
+    fetch('https://your-backend-api.onrender.com/api/headlines?bias=left')
+      .then(res => res.json())
+      .then(data => {
+        const list = document.getElementById('leftNewsList');
+        list.innerHTML = data.map(article => `<li><a href="${article.url}" class="text-blue-600 hover:underline">${article.title}</a></li>`).join('');
+      });
+  </script>
+</body>
+</html>
