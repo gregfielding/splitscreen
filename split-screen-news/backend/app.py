@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from flask import Flask, jsonify
 from flask_cors import CORS
 from openai import OpenAI
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 CORS(app)
@@ -16,9 +17,38 @@ client = OpenAI(api_key=OPENAI_KEY)
 MEDIASTACK_URL = "https://api.mediastack.com/v1/news"
 RENDER_URL = "https://splitscreen-jkbx.onrender.com"
 
+PREFERRED_SOURCES = {
+    "New York Times", "CNN", "Fox News", "The Guardian", "NPR",
+    "BBC News", "Reuters", "Associated Press", "NBC News", "The Hill", "Al Jazeera",
+    "Breitbart News"
+}
+
 @app.route("/")
 def index():
     return "✅ Flask backend is live."
+
+def is_recent(article, days=2):
+    try:
+        pub_date = datetime.strptime(article.get("published_at", ""), "%Y-%m-%dT%H:%M:%S+00:00")
+        return pub_date >= datetime.utcnow() - timedelta(days=days)
+    except:
+        return False
+
+def dedupe_articles(articles):
+    seen = set()
+    unique = []
+    for a in articles:
+        key = a["title"].strip().lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(a)
+    return unique
+
+def prioritize_articles(articles):
+    return sorted(
+        articles,
+        key=lambda a: a.get("source") not in PREFERRED_SOURCES
+    )
 
 @app.route("/api/headlines/raw")
 def fetch_mediastack_headlines():
@@ -36,14 +66,18 @@ def fetch_mediastack_headlines():
         response.raise_for_status()
         data = response.json()
 
+        articles = [a for a in data.get("data", []) if is_recent(a)]
+        articles = dedupe_articles(articles)
+        articles = prioritize_articles(articles)
+
         headlines = [
             {
-                "title": article["title"],
-                "description": article["description"],
-                "url": article["url"],
-                "source": article.get("source")
+                "title": a["title"],
+                "description": a["description"],
+                "url": a["url"],
+                "source": a.get("source")
             }
-            for article in data.get("data", [])
+            for a in articles
         ]
         return jsonify({"headlines": headlines})
     except Exception as e:
@@ -65,8 +99,9 @@ def get_dynamic_topic_map():
         response.raise_for_status()
         data = response.json()
 
-        headlines = [article["title"] for article in data.get("data", []) if article.get("title")]
-        joined = "\n".join(f"- {title}" for title in headlines)
+        articles = [a for a in data.get("data", []) if is_recent(a)]
+        titles = [a["title"] for a in dedupe_articles(articles)]
+        joined = "\n".join(f"- {title}" for title in titles)
 
         prompt = (
             "Group these headlines into 8–12 topic categories. Return a JSON object with category labels as keys and "
@@ -85,16 +120,6 @@ def get_dynamic_topic_map():
         return jsonify(structured)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-def dedupe_articles(articles):
-    seen = set()
-    unique = []
-    for a in articles:
-        key = a["title"].strip().lower()
-        if key not in seen:
-            seen.add(key)
-            unique.append(a)
-    return unique
 
 @app.route("/api/topic/<slug>")
 def get_topic_data(slug):
@@ -126,8 +151,10 @@ def get_topic_data(slug):
                 if articles:
                     break
 
+        articles = [a for a in articles if is_recent(a)]
         deduped = dedupe_articles(articles)
-        article_texts = [f"{a.get('source', '')}: {a['title']}" for a in deduped if 'title' in a]
+        sorted_articles = prioritize_articles(deduped)
+        article_texts = [f"{a.get('source', '')}: {a['title']}" for a in sorted_articles if 'title' in a]
         sample = "\n".join(article_texts[:12])
 
         prompt = (
@@ -152,8 +179,8 @@ def get_topic_data(slug):
             "ai_summary": summary,
             "comparison": "This section will later compare left vs right framing in more detail.",
             "articles": {
-                "left": deduped[:3],
-                "right": deduped[3:6]
+                "left": sorted_articles[:3],
+                "right": sorted_articles[3:6]
             },
             "commentary": {
                 "left": [],
