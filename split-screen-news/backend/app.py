@@ -13,7 +13,7 @@ MEDIASTACK_KEY = os.getenv("MEDIASTACK_API_KEY")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_KEY)
 
-MEDIASTACK_URL = "http://api.mediastack.com/v1/news"
+MEDIASTACK_URL = "https://api.mediastack.com/v1/news"
 RENDER_URL = "https://splitscreen-jkbx.onrender.com"
 
 @app.route("/")
@@ -31,6 +31,8 @@ def fetch_mediastack_headlines():
             'limit': 40
         }
         response = requests.get(MEDIASTACK_URL, params=params)
+        if response.status_code == 429:
+            return jsonify({"error": "Mediastack rate limit hit. Please wait and try again."}), 429
         response.raise_for_status()
         data = response.json()
 
@@ -58,6 +60,8 @@ def get_top_topics():
             'limit': 40
         }
         response = requests.get(MEDIASTACK_URL, params=params)
+        if response.status_code == 429:
+            return jsonify({"error": "Mediastack rate limit hit. Please wait and try again."}), 429
         response.raise_for_status()
         data = response.json()
         headlines = [article["title"] for article in data.get("data", [])]
@@ -100,6 +104,8 @@ def get_topic_data(slug):
                     'keywords': keyword
                 }
                 r = requests.get(MEDIASTACK_URL, params=params)
+                if r.status_code == 429:
+                    return []
                 r.raise_for_status()
                 return r.json().get("data", [])
 
