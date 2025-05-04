@@ -14,6 +14,7 @@ OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_KEY)
 
 MEDIASTACK_URL = "http://api.mediastack.com/v1/news"
+RENDER_URL = "https://splitscreen-jkbx.onrender.com"
 
 @app.route("/")
 def index():
@@ -85,7 +86,7 @@ def get_top_topics():
 def get_topic_data(slug):
     try:
         if slug == "top-headlines":
-            res = requests.get("http://localhost:5000/api/headlines/raw")
+            res = requests.get(f"{RENDER_URL}/api/headlines/raw")
             data = res.json()
             articles = data.get("headlines", [])
         else:
