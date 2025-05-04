@@ -143,6 +143,16 @@ def get_topic_data(slug):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def dedupe_stories(stories):
+    seen = set()
+    unique = []
+    for s in stories:
+        key = s["title"].strip().lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(s)
+    return unique
+
 @app.route("/api/topstories")
 def get_top_stories():
     try:
@@ -177,7 +187,8 @@ def get_top_stories():
                     link = url + link
                 results.append({"source": name, "title": text, "url": link})
 
-        return jsonify({"top_stories": results})
+        deduped = dedupe_stories(results)
+        return jsonify({"top_stories": deduped})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
