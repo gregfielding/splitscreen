@@ -90,18 +90,25 @@ def get_topic_data(slug):
             data = res.json()
             articles = data.get("headlines", [])
         else:
-            params = {
-                'access_key': MEDIASTACK_KEY,
-                'languages': 'en',
-                'countries': 'us',
-                'sort': 'published_desc',
-                'limit': 20,
-                'keywords': slug.replace("-", " ")
-            }
-            response = requests.get(MEDIASTACK_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
-            articles = data.get("data", [])
+            def query_articles(keyword):
+                params = {
+                    'access_key': MEDIASTACK_KEY,
+                    'languages': 'en',
+                    'countries': 'us',
+                    'sort': 'published_desc',
+                    'limit': 20,
+                    'keywords': keyword
+                }
+                r = requests.get(MEDIASTACK_URL, params=params)
+                r.raise_for_status()
+                return r.json().get("data", [])
+
+            search_terms = [slug.replace("-", " "), slug.replace("-", ""), slug.split("-")[0]]
+            articles = []
+            for term in search_terms:
+                articles = query_articles(term)
+                if articles:
+                    break
 
         article_texts = [f"{a.get('source', '')}: {a['title']}" for a in articles if 'title' in a]
         sample = "\n".join(article_texts[:12])
