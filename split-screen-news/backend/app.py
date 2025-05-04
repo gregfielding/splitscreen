@@ -1,28 +1,23 @@
 import os
 import json
 import requests
+from bs4 import BeautifulSoup
 from flask import Flask, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 
-# Flask setup
 app = Flask(__name__)
 CORS(app)
 
-# API Keys
 MEDIASTACK_KEY = os.getenv("MEDIASTACK_API_KEY")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-
-# OpenAI client
 client = OpenAI(api_key=OPENAI_KEY)
 
 MEDIASTACK_URL = "http://api.mediastack.com/v1/news"
 
-
 @app.route("/")
 def index():
     return "✅ Flask backend is live."
-
 
 @app.route("/api/headlines/raw")
 def fetch_mediastack_headlines():
@@ -51,11 +46,9 @@ def fetch_mediastack_headlines():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/api/topics/today")
 def get_top_topics():
     try:
-        # Step 1: Fetch latest headlines
         params = {
             'access_key': MEDIASTACK_KEY,
             'languages': 'en',
@@ -68,12 +61,10 @@ def get_top_topics():
         data = response.json()
         headlines = [article["title"] for article in data.get("data", [])]
 
-        # Step 2: Ask OpenAI to generate topic clusters
         joined = "\n".join(f"- {title}" for title in headlines)
         prompt = (
             "You are a media analyst. Group these headlines into 4-6 story clusters and return "
-            "a JSON array of lowercase hyphenated topic slugs like:\n"
-            "[\"trump-trial\", \"student-loans\", \"congestion-pricing\"]\n\n"
+            "a JSON array of lowercase hyphenated topic slugs like: [\"trump-trial\", \"student-loans\"]\n\n"
             f"{joined}"
         )
 
@@ -90,17 +81,14 @@ def get_top_topics():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/api/topic/<slug>")
 def get_topic_data(slug):
     try:
         if slug == "top-headlines":
-            # Use the cached results
             res = requests.get("http://localhost:5000/api/headlines/raw")
             data = res.json()
             articles = data.get("headlines", [])
         else:
-            # Fresh search based on topic
             params = {
                 'access_key': MEDIASTACK_KEY,
                 'languages': 'en',
@@ -114,16 +102,13 @@ def get_topic_data(slug):
             data = response.json()
             articles = data.get("data", [])
 
-        # Shorten titles for OpenAI
         article_texts = [f"{a.get('source', '')}: {a['title']}" for a in articles if 'title' in a]
         sample = "\n".join(article_texts[:12])
 
         prompt = (
             f"Topic: {slug.replace('-', ' ')}\n"
             f"Here are example article headlines:\n{sample}\n\n"
-            "Summarize the media coverage of this topic. "
-            "Compare how left and right-leaning sources are covering it differently. "
-            "Make it insightful but brief."
+            "Summarize the media coverage of this topic. Compare how left and right-leaning sources are covering it differently."
         )
 
         chat = client.chat.completions.create(
@@ -158,6 +143,44 @@ def get_topic_data(slug):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/topstories")
+def get_top_stories():
+    try:
+        sources = {
+            "CNN": "https://www.cnn.com",
+            "Fox News": "https://www.foxnews.com",
+            "NYT": "https://www.nytimes.com",
+            "NPR": "https://www.npr.org"
+        }
+
+        results = []
+
+        for name, url in sources.items():
+            res = requests.get(url, timeout=10)
+            soup = BeautifulSoup(res.text, "html.parser")
+
+            if "cnn.com" in url:
+                headlines = soup.select("h3.cd__headline a")
+            elif "foxnews.com" in url:
+                headlines = soup.select("h2.title a")
+            elif "nytimes.com" in url:
+                headlines = soup.select("section[data-block-tracking-id='Top Stories'] h3")
+            elif "npr.org" in url:
+                headlines = soup.select(".story-text h3.title a")
+            else:
+                headlines = []
+
+            for h in headlines[:2]:
+                text = h.get_text(strip=True)
+                link = h.get("href")
+                if not link.startswith("http"):
+                    link = url + link
+                results.append({"source": name, "title": text, "url": link})
+
+        return jsonify({"top_stories": results})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
