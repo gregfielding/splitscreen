@@ -1,23 +1,28 @@
 import os
 import json
 import requests
-import openai
 from flask import Flask, jsonify
 from flask_cors import CORS
+from openai import OpenAI
 
+# Flask setup
 app = Flask(__name__)
 CORS(app)
 
-# Load keys
+# API Keys
 MEDIASTACK_KEY = os.getenv("MEDIASTACK_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+
+# OpenAI client
+client = OpenAI(api_key=OPENAI_KEY)
+
 MEDIASTACK_URL = "http://api.mediastack.com/v1/news"
 
-openai.api_key = OPENAI_API_KEY
 
 @app.route("/")
 def index():
     return "✅ Flask backend is live."
+
 
 @app.route("/api/headlines/raw")
 def fetch_mediastack_headlines():
@@ -46,10 +51,11 @@ def fetch_mediastack_headlines():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/api/topics/today")
 def get_top_topics():
     try:
-        # Fetch headlines
+        # Step 1: Fetch latest headlines
         params = {
             'access_key': MEDIASTACK_KEY,
             'languages': 'en',
@@ -62,38 +68,39 @@ def get_top_topics():
         data = response.json()
         headlines = [article["title"] for article in data.get("data", [])]
 
-        joined_headlines = "\n".join(f"- {title}" for title in headlines)
+        # Step 2: Ask OpenAI to generate topic clusters
+        joined = "\n".join(f"- {title}" for title in headlines)
         prompt = (
-            "Group the following U.S. news headlines into 4–6 topic clusters.\n"
-            "Return only a valid JSON array of lowercase hyphenated topic slugs like:\n"
-            "[\"trump-trial\", \"student-loans\"]\n\n"
-            f"Headlines:\n{joined_headlines}"
+            "You are a media analyst. Group these headlines into 4-6 story clusters and return "
+            "a JSON array of lowercase hyphenated topic slugs like:\n"
+            "[\"trump-trial\", \"student-loans\", \"congestion-pricing\"]\n\n"
+            f"{joined}"
         )
 
-        chat = openai.ChatCompletion.create(
+        chat = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            response_format="json",
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.3
         )
 
-        topics = json.loads(chat.choices[0].message.content.strip())
+        content = chat.choices[0].message.content.strip()
+        topics = json.loads(content)
         return jsonify({"topics": topics})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/api/topic/<slug>")
 def get_topic_data(slug):
     try:
         if slug == "top-headlines":
+            # Use the cached results
             res = requests.get("http://localhost:5000/api/headlines/raw")
+            data = res.json()
+            articles = data.get("headlines", [])
         else:
+            # Fresh search based on topic
             params = {
                 'access_key': MEDIASTACK_KEY,
                 'languages': 'en',
@@ -102,33 +109,30 @@ def get_topic_data(slug):
                 'limit': 20,
                 'keywords': slug.replace("-", " ")
             }
-            res = requests.get(MEDIASTACK_URL, params=params)
+            response = requests.get(MEDIASTACK_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+            articles = data.get("data", [])
 
-        data = res.json()
-        articles = data.get("headlines", []) if slug == "top-headlines" else data.get("data", [])
-
+        # Shorten titles for OpenAI
         article_texts = [f"{a.get('source', '')}: {a['title']}" for a in articles if 'title' in a]
-        joined = "\n".join(article_texts[:12])
+        sample = "\n".join(article_texts[:12])
 
         prompt = (
-            f"Summarize how the media is covering the topic '{slug.replace('-', ' ')}'. "
-            "Group coverage into left-leaning and right-leaning perspectives where possible. "
-            f"Here are some article headlines:\n{joined}"
+            f"Topic: {slug.replace('-', ' ')}\n"
+            f"Here are example article headlines:\n{sample}\n\n"
+            "Summarize the media coverage of this topic. "
+            "Compare how left and right-leaning sources are covering it differently. "
+            "Make it insightful but brief."
         )
 
-        chat = openai.ChatCompletion.create(
+        chat = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful, unbiased political media analyst."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "system", "content": "You are a neutral political analyst summarizing US media bias."},
+                {"role": "user", "content": prompt}
             ],
-            temperature=0.4
+            temperature: 0.4
         )
 
         summary = chat.choices[0].message.content.strip()
@@ -136,7 +140,7 @@ def get_topic_data(slug):
         return jsonify({
             "topic": slug.replace("-", " ").title(),
             "ai_summary": summary,
-            "comparison": "This is placeholder comparison content.",
+            "comparison": "This section will later compare left vs right framing in more detail.",
             "articles": {
                 "left": articles[:3],
                 "right": articles[3:6]
@@ -146,13 +150,14 @@ def get_topic_data(slug):
                 "right": []
             },
             "facts": {
-                "summary": "Placeholder for factual context.",
-                "sources": ["Wikipedia"]
+                "summary": "Placeholder: factual context about this issue goes here.",
+                "sources": ["Wikipedia", "Britannica"]
             }
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     app.run(debug=True)
