@@ -12,6 +12,39 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MEDIASTACK_URL = "http://api.mediastack.com/v1/news"
 openai.api_key = OPENAI_API_KEY
 
+@app.route("/")
+def index():
+    return "✅ Flask backend is live."
+
+@app.route("/api/headlines/raw")
+def fetch_mediastack_headlines():
+    try:
+        params = {
+            'access_key': MEDIASTACK_KEY,
+            'languages': 'en',
+            'countries': 'us',
+            'sort': 'published_desc',
+            'limit': 40
+        }
+        response = requests.get(MEDIASTACK_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        headlines = [
+            {
+                "title": article["title"],
+                "description": article["description"],
+                "url": article["url"],
+                "source": article.get("source")
+            }
+            for article in data.get("data", [])
+        ]
+
+        return jsonify({"headlines": headlines})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/topics/today")
 def get_top_topics():
     try:
@@ -38,7 +71,7 @@ def get_top_topics():
         )
 
         chat = openai.ChatCompletion.create(
-            model="gpt-4.1-mini",
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that outputs clean JSON."},
                 {"role": "user", "content": prompt}
@@ -51,6 +84,41 @@ def get_top_topics():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/topic/<slug>")
+def get_topic_mock(slug):
+    # Mock response for now
+    return jsonify({
+        "topic": slug.replace("-", " ").title(),
+        "ai_summary": "This is a placeholder summary explaining how this topic is portrayed across news sources.",
+        "comparison": "The left tends to emphasize systemic causes, while the right emphasizes individual responsibility.",
+        "articles": {
+            "left": [
+                {"title": "Progressive Policy Update", "url": "#", "source": "NYT", "snippet": "Liberal take on recent events."},
+                {"title": "Rights and Regulation", "url": "#", "source": "CNN", "snippet": "A look at what's at stake from the left."},
+                {"title": "Workers and Equity", "url": "#", "source": "MSNBC", "snippet": "Discussion on fairness and equality."}
+            ],
+            "right": [
+                {"title": "Freedom or Control?", "url": "#", "source": "Fox News", "snippet": "A conservative look at the issue."},
+                {"title": "Government Overreach", "url": "#", "source": "Daily Wire", "snippet": "Right-leaning perspective on regulation."},
+                {"title": "Taxes and Tyranny", "url": "#", "source": "Breitbart", "snippet": "Fears of expanding state power."}
+            ]
+        },
+        "commentary": {
+            "left": [
+                {"source": "Slate", "type": "op-ed", "quote": "This policy will help everyday Americans."},
+                {"source": "Pod Save America", "type": "podcast", "quote": "A bold step in the right direction."}
+            ],
+            "right": [
+                {"source": "Ben Shapiro Show", "type": "podcast", "quote": "A dangerous overreach by the government."},
+                {"source": "National Review", "type": "op-ed", "quote": "Another sign of leftist excess."}
+            ]
+        },
+        "facts": {
+            "summary": "Congestion pricing was first proposed in 1952, with major adoption in cities like London and Singapore.",
+            "sources": ["Wikipedia", "Britannica", "Brookings"]
+        }
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)
