@@ -20,7 +20,8 @@ RENDER_URL = "https://splitscreen-jkbx.onrender.com"
 
 PREFERRED_SOURCE_IDS = [
     "forbes", "cbssports.com", "espn", "tmz", "techcrunch",
-    "the-new-york-times", "bloomberg-latest-and-live-business", "yahoo-news"
+    "the-new-york-times", "bloomberg-latest-and-live-business", "yahoo-news",
+    "bostonherald", "denverpost", "latimes", "mercurynews", "ocregister",
 ]
 
 VALID_CATEGORIES = [
