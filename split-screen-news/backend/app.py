@@ -7,6 +7,7 @@ import re
 import logging
 import os
 import openai
+import time
 
 app = Flask(__name__)
 CORS(app)
@@ -34,7 +35,23 @@ def is_duplicate(title):
     seen_titles.add(t)
     return False
 
+# In-memory cache
+cache = {}
+CACHE_DURATION = 600  # seconds (10 minutes)
+
+def get_cached(key):
+    entry = cache.get(key)
+    if entry and (time.time() - entry['timestamp'] < CACHE_DURATION):
+        return entry['data']
+    return None
+
+def set_cache(key, data):
+    cache[key] = {'data': data, 'timestamp': time.time()}
+
 def fetch_mediastack_articles(category):
+    cached = get_cached(f"category:{category}")
+    if cached:
+        return cached
     try:
         params = {
             'access_key': MEDIASTACK_API_KEY,
@@ -48,6 +65,7 @@ def fetch_mediastack_articles(category):
         response.raise_for_status()
         data = response.json()
         articles = []
+        seen_titles.clear()
         for a in data.get('data', []):
             source = a.get("source", "").lower()
             if not a.get("title") or not a.get("url") or source not in PREFERRED_SOURCES or is_duplicate(a["title"]):
@@ -59,6 +77,7 @@ def fetch_mediastack_articles(category):
                 "description": a.get("description", ""),
                 "published_at": a.get("published_at", datetime.utcnow().isoformat())
             })
+        set_cache(f"category:{category}", articles)
         return articles
     except Exception as e:
         logging.error(f"Error fetching {category} category: {e}")
@@ -95,17 +114,21 @@ def scrape_homepage(url, selector, source_name):
 
 @app.route("/api/topstories")
 def top_stories():
+    cached = get_cached("topstories")
+    if cached:
+        return jsonify({"top_stories": cached})
+    seen_titles.clear()
     cnn = scrape_homepage("https://www.cnn.com", "h3.cd__headline a", "cnn")
     nyt = scrape_homepage("https://www.nytimes.com", "section[data-block-tracking-id='Top Stories'] h3 a", "new-york-times")
     fox = scrape_homepage("https://www.foxnews.com", "main h2.title a", "fox-news")
     combined = cnn + nyt + fox
     combined = [a for a in combined if a['title'] and a['url'] and a['source'].lower() in PREFERRED_SOURCES]
+    set_cache("topstories", combined)
     return jsonify({"top_stories": combined})
 
 @app.route("/api/category/<slug>")
 def category(slug):
     logging.info(f"Fetching category: {slug}")
-    seen_titles.clear()
     articles = fetch_mediastack_articles(slug)
     return jsonify({"headlines": articles})
 
@@ -114,9 +137,7 @@ def trending(slug):
     logging.info(f"Extracting trending topics for: {slug}")
     articles = fetch_mediastack_articles(slug)
     titles = [a.get("title", "") for a in articles if isinstance(a.get("title"), str)]
-
     title_text = "\n".join(titles)
-
     try:
         messages = [
             {"role": "system", "content": "You are a helpful assistant that extracts trending topics from news headlines and summarizes the general theme."},
@@ -136,16 +157,6 @@ def trending(slug):
         keyword_counts = {}
         for t in titles:
             words = re.findall(r"\b[A-Z][a-z]+\b", t)
-            for w in words:
-                keyword_counts[w] = keyword_counts.get(w, 0) + 1
-        sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
-        return jsonify({"summary": "", "trending": [kw for kw, _ in sorted_keywords[:10]]})
-
-    except Exception as e:
-        logging.warning(f"Fallback to keyword extraction: {e}")
-        keyword_counts = {}
-        for t in titles:
-            words = re.findall(r"\\b[A-Z][a-z]+\\b", t)
             for w in words:
                 keyword_counts[w] = keyword_counts.get(w, 0) + 1
         sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
