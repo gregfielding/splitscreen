@@ -54,6 +54,25 @@ def prioritize_articles(articles):
         key=lambda a: a.get("source") not in PREFERRED_SOURCES
     )
 
+@app.route("/api/sources/live")
+def get_live_sources():
+    try:
+        params = {
+            'access_key': MEDIASTACK_KEY,
+            'languages': 'en',
+            'countries': 'us',
+            'sort': 'published_desc',
+            'limit': 60
+        }
+        response = requests.get(MEDIASTACK_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        sources = sorted({a.get("source") for a in data.get("data", []) if a.get("source")})
+        return jsonify({"sources": sources})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/headlines/raw")
 def fetch_mediastack_headlines():
     try:
