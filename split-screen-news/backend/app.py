@@ -10,8 +10,26 @@ CORS(app)
 MEDIASTACK_API_KEY = os.environ.get("MEDIASTACK_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-# Load preferred sources (temporarily allow all)
-PREFERRED_SOURCES = set()  # We'll re-enable later
+# Preferred sources formatted to match Mediastack
+PREFERRED_SOURCES = {
+    "the-new-york-times",
+    "cnn",
+    "fox-news",
+    "the-guardian",
+    "npr",
+    "bbc-news",
+    "reuters",
+    "associated-press",
+    "nbc-news",
+    "the-hill",
+    "al-jazeera",
+    "breitbart-news",
+    "washington-post",
+    "barrons",
+    "the-wall-street-journal",
+    "msnbc",
+    "cnbc"
+}
 
 @app.route("/api/category/<category>")
 def get_category_news(category):
@@ -32,11 +50,11 @@ def get_category_news(category):
         response.raise_for_status()
         articles = response.json().get("data", [])
 
-        # DEBUG: Log actual sources
+        # Normalize sources and log what was returned
         sources = set(a.get("source", "").lower().replace(" ", "-") for a in articles if a.get("source"))
         print("Sources from Mediastack:", sources)
 
-        # TEMP: Allow all sources (no filtering)
+        # Filter articles by preferred sources only
         filtered = [
             {
                 "title": a["title"],
@@ -45,7 +63,9 @@ def get_category_news(category):
                 "image": a.get("image"),
                 "published": a.get("published_at")
             }
-            for a in articles if a.get("title") and a.get("url")
+            for a in articles
+            if a.get("title") and a.get("url") and a.get("source")
+            and a.get("source", "").lower().replace(" ", "-") in PREFERRED_SOURCES
         ]
 
         return jsonify(filtered)
