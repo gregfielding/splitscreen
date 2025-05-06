@@ -42,7 +42,7 @@ def fetch_mediastack_articles(category):
             'countries': 'us',
             'sort': 'published_desc',
             'limit': 75,
-            'categories': category
+            'categories': 'general' if category.lower() == 'top-stories' else category
         }
         response = requests.get(MEDIASTACK_BASE_URL, params=params)
         response.raise_for_status()
