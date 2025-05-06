@@ -74,8 +74,9 @@ def get_category_news(slug):
             for a in articles
         ]
 
-        phrases = extract_phrases([h["title"] for h in headlines])
-        CACHE["trending"][slug] = phrases
+        raw_phrases = extract_phrases([h["title"] for h in headlines])
+        trending = clean_trending_phrases_with_ai(raw_phrases)
+        CACHE["trending"][slug] = trending
 
         return jsonify({"category": slug, "headlines": headlines})
     except Exception as e:
@@ -176,7 +177,28 @@ def extract_phrases(titles):
             if words[i][0].isupper() and words[i+1][0].isupper():
                 phrases.append(f"{words[i]} {words[i+1]}")
     counter = Counter(phrases)
-    return [phrase for phrase, count in counter.most_common(10)]
+    return [phrase for phrase, count in counter.most_common(12)]
+
+def clean_trending_phrases_with_ai(phrases):
+    try:
+        joined = ", ".join(phrases)
+        prompt = (
+            f"Here is a list of raw trending keywords: {joined}.\n"
+            f"Return a cleaned list of 6–8 concise, readable trending topics. Remove duplicates or similar terms."
+        )
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a skilled content editor."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.4
+        )
+        cleaned = response.choices[0].message.content.strip()
+        return re.findall(r'\"(.*?)\"', cleaned) or cleaned.split("\n")
+    except Exception as e:
+        print("AI cleanup error:", e)
+        return phrases[:8]
 
 @app.route("/api/topstories")
 def get_top_stories():
