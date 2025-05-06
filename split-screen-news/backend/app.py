@@ -1,176 +1,89 @@
+import os
+import requests
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
-import re
-import logging
-import os
-import openai
-import time
+from openai import OpenAI
 
 app = Flask(__name__)
 CORS(app)
 
-logging.basicConfig(level=logging.INFO)
+HEADERS = {"User-Agent": "Mozilla/5.0"}
+openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-PREFERRED_SOURCES = {
-    "new-york-times", "cnn", "fox-news", "the-guardian", "npr",
-    "bbc-news", "reuters", "associated-press", "nbc-news", "the-hill",
-    "al-jazeera", "washington-post", "latimes", "denverpost", "ocregister",
-    "mercurynews", "bostonherald"
-}
+def scrape_cnn():
+    url = "https://www.cnn.com"
+    res = requests.get(url, headers=HEADERS)
+    soup = BeautifulSoup(res.text, "html.parser")
+    links = soup.select("h3.cd__headline a")
+    headlines = []
+    for link in links[:15]:
+        title = link.get_text(strip=True)
+        href = link.get("href")
+        if href and not href.startswith("http"):
+            href = f"https://www.cnn.com{href}"
+        headlines.append({"title": title, "url": href, "source": "CNN"})
+    print(f"cnn found {len(headlines)} headlines")
+    return headlines
 
-MEDIASTACK_API_KEY = os.environ["MEDIASTACK_API_KEY"]
-MEDIASTACK_BASE_URL = "http://api.mediastack.com/v1/news"
+def scrape_nyt():
+    url = "https://www.nytimes.com"
+    res = requests.get(url, headers=HEADERS)
+    soup = BeautifulSoup(res.text, "html.parser")
+    articles = soup.select("section[data-block-tracking-id='Top Stories'] h3 a")
+    headlines = []
+    for article in articles[:15]:
+        title = article.get_text(strip=True)
+        href = article.get("href")
+        if href and not href.startswith("http"):
+            href = f"https://www.nytimes.com{href}"
+        headlines.append({"title": title, "url": href, "source": "New York Times"})
+    print(f"new-york-times found {len(headlines)} headlines")
+    return headlines
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-openai.api_key = OPENAI_API_KEY
-
-seen_titles = set()
-def is_duplicate(title):
-    t = re.sub(r'[^a-zA-Z0-9 ]', '', title).strip().lower()
-    if t in seen_titles:
-        return True
-    seen_titles.add(t)
-    return False
-
-cache = {}
-CACHE_DURATION = 600
-
-def get_cached(key):
-    entry = cache.get(key)
-    if entry and (time.time() - entry['timestamp'] < CACHE_DURATION):
-        return entry['data']
-    return None
-
-def set_cache(key, data):
-    cache[key] = {'data': data, 'timestamp': time.time()}
-
-def fetch_mediastack_articles(category):
-    if category.lower() == 'top-stories':
-        return []  # Don't hit Mediastack for this
-    cached = get_cached(f"category:{category}")
-    if cached:
-        return cached
-    try:
-        params = {
-            'access_key': MEDIASTACK_API_KEY,
-            'languages': 'en',
-            'countries': 'us',
-            'sort': 'published_desc',
-            'limit': 75,
-            'categories': category
-        }
-        response = requests.get(MEDIASTACK_BASE_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-        articles = []
-        seen_titles.clear()
-        for a in data.get('data', []):
-            source = a.get("source", "").lower()
-            if not a.get("title") or not a.get("url") or source not in PREFERRED_SOURCES or is_duplicate(a["title"]):
-                continue
-            articles.append({
-                "title": a["title"],
-                "url": a["url"],
-                "source": a["source"],
-                "description": a.get("description", ""),
-                "published_at": a.get("published_at", datetime.utcnow().isoformat())
-            })
-        set_cache(f"category:{category}", articles)
-        return articles
-    except Exception as e:
-        logging.error(f"Error fetching {category} category: {e}")
-        return []
-
-def scrape_homepage(url, selector, source_name):
-    try:
-        response = requests.get(url, timeout=6)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        elements = soup.select(selector)
-        headlines = []
-        for el in elements:
-            title = el.get_text(strip=True)
-            href = el.get("href")
-            if not title or not href:
-                continue
-            if not href.startswith("http"):
-                href = requests.compat.urljoin(url, href)
-            if is_duplicate(title):
-                continue
-            headlines.append({
-                "title": title,
-                "url": href,
-                "source": source_name,
-                "published_at": datetime.utcnow().isoformat(),
-                "description": ""
-            })
-        logging.info(f"{source_name} found {len(headlines)} headlines")
-        return headlines
-    except Exception as e:
-        logging.error(f"Error scraping {source_name}: {e}")
-        return []
+def scrape_fox():
+    url = "https://www.foxnews.com"
+    res = requests.get(url, headers=HEADERS)
+    soup = BeautifulSoup(res.text, "html.parser")
+    articles = soup.select("main article h2.title a")
+    headlines = []
+    for article in articles[:15]:
+        title = article.get_text(strip=True)
+        href = article.get("href")
+        if href and not href.startswith("http"):
+            href = f"https://www.foxnews.com{href}"
+        headlines.append({"title": title, "url": href, "source": "Fox News"})
+    print(f"fox-news found {len(headlines)} headlines")
+    return headlines
 
 @app.route("/api/topstories")
 def top_stories():
-    cached = get_cached("topstories")
-    if cached:
-        return jsonify({"top_stories": cached})
-    seen_titles.clear()
-    cnn = scrape_homepage("https://www.cnn.com", "h3.cd__headline a", "cnn")
-    nyt = scrape_homepage("https://www.nytimes.com", "section[data-block-tracking-id='Top Stories'] h3 a", "new-york-times")
-    fox = scrape_homepage("https://www.foxnews.com", "main h2.title a", "fox-news")
-    combined = cnn + nyt + fox
-    combined = [a for a in combined if a['title'] and a['url'] and a['source'].lower() in PREFERRED_SOURCES]
-    set_cache("topstories", combined)
-    return jsonify({"top_stories": combined})
-
-@app.route("/api/category/<slug>")
-def category(slug):
-    logging.info(f"Fetching category: {slug}")
-    if slug.lower() in ["top-stories", "top stories"]:
-        return jsonify({"headlines": []})
-    articles = fetch_mediastack_articles(slug)
-    return jsonify({"headlines": articles})
-
-@app.route("/api/trending/<slug>")
-def trending(slug):
-    logging.info(f"Extracting trending topics for: {slug}")
-    if slug.lower() in ["top-stories", "top stories"]:
-        articles = []
-    else:
-        articles = fetch_mediastack_articles(slug)
-    titles = [a.get("title", "") for a in articles if isinstance(a.get("title"), str)]
-    title_text = "\n".join(titles)
     try:
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant that extracts trending topics from news headlines and summarizes the general theme."},
-            {"role": "user", "content": f"From these headlines, summarize what the news is mostly about and return a short paragraph followed by 8-10 trending topic tags:\n{title_text}"}
-        ]
-        chat = openai.chat.completions.create(
+        all_stories = scrape_cnn() + scrape_nyt() + scrape_fox()
+        print(f"✅ Total scraped top stories: {len(all_stories)}")
+        return jsonify(all_stories)
+    except Exception as e:
+        print(f"ERROR scraping top stories: {e}")
+        return jsonify([])
+
+@app.route("/api/summarize", methods=["POST"])
+def summarize():
+    try:
+        data = request.json
+        titles = data.get("titles", [])
+        if not titles or not isinstance(titles, list):
+            return jsonify({"summary": "No headlines to summarize."})
+
+        prompt = "Summarize the following news headlines:\n" + "\n".join(titles)
+        response = openai.chat.completions.create(
             model="gpt-4",
-            messages=messages,
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.4
         )
-        content = chat.choices[0].message.content.strip()
-        summary_part, *tags_part = content.split("Tags:") if "Tags:" in content else (content, [])
-        tags = re.findall(r"\b([A-Z][a-zA-Z0-9\-']{2,})\b", ''.join(tags_part))
-        return jsonify({"summary": summary_part.strip(), "trending": list(set(tags))[:10]})
+        return jsonify({"summary": response.choices[0].message.content.strip()})
     except Exception as e:
-        logging.warning(f"Fallback to keyword extraction: {e}")
-        keyword_counts = {}
-        for t in titles:
-            words = re.findall(r"\b[A-Z][a-z]+\b", t)
-            for w in words:
-                keyword_counts[w] = keyword_counts.get(w, 0) + 1
-        sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
-        return jsonify({"summary": "", "trending": [kw for kw, _ in sorted_keywords[:10]]})
+        print(f"AI summary error: {e}")
+        return jsonify({"summary": "Unable to generate summary at this time."})
 
-@app.route("/api/health")
-def health():
-    return jsonify({"message": "OK"})
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
