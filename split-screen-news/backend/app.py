@@ -4,6 +4,8 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from bs4 import BeautifulSoup
 import openai
+from collections import Counter
+import re
 
 app = Flask(__name__)
 CORS(app)
@@ -19,58 +21,51 @@ PREFERRED_SOURCES = {
 }
 
 def scrape_cnn():
-    url = "https://www.cnn.com"
-    res = requests.get(url, headers=HEADERS)
+    res = requests.get("https://www.cnn.com", headers=HEADERS)
     soup = BeautifulSoup(res.text, "html.parser")
     links = soup.select("h3.cd__headline a")
-    headlines = []
-    for link in links[:15]:
-        title = link.get_text(strip=True)
-        href = link.get("href")
-        if href and not href.startswith("http"):
-            href = f"https://www.cnn.com{href}"
-        headlines.append({"title": title, "url": href, "source": "CNN"})
-    print(f"cnn found {len(headlines)} headlines")
-    return headlines
+    return [
+        {
+            "title": link.get_text(strip=True),
+            "url": f"https://www.cnn.com{link.get('href')}" if not link.get("href").startswith("http") else link.get("href"),
+            "source": "CNN"
+        }
+        for link in links[:15] if link.get("href")
+    ]
 
 def scrape_nyt():
-    url = "https://www.nytimes.com"
-    res = requests.get(url, headers=HEADERS)
+    res = requests.get("https://www.nytimes.com", headers=HEADERS)
     soup = BeautifulSoup(res.text, "html.parser")
-    articles = soup.select("section[data-block-tracking-id='Top Stories'] h3 a")
-    headlines = []
-    for article in articles[:15]:
-        title = article.get_text(strip=True)
-        href = article.get("href")
-        if href and not href.startswith("http"):
-            href = f"https://www.nytimes.com{href}"
-        headlines.append({"title": title, "url": href, "source": "New York Times"})
-    print(f"new-york-times found {len(headlines)} headlines")
-    return headlines
+    links = soup.select("section[data-block-tracking-id='Top Stories'] h3 a")
+    return [
+        {
+            "title": link.get_text(strip=True),
+            "url": f"https://www.nytimes.com{link.get('href')}" if not link.get("href").startswith("http") else link.get("href"),
+            "source": "New York Times"
+        }
+        for link in links[:15] if link.get("href")
+    ]
 
 def scrape_fox():
-    url = "https://www.foxnews.com"
-    res = requests.get(url, headers=HEADERS)
+    res = requests.get("https://www.foxnews.com", headers=HEADERS)
     soup = BeautifulSoup(res.text, "html.parser")
-    articles = soup.select("main article h2.title a")
-    headlines = []
-    for article in articles[:15]:
-        title = article.get_text(strip=True)
-        href = article.get("href")
-        if href and not href.startswith("http"):
-            href = f"https://www.foxnews.com{href}"
-        headlines.append({"title": title, "url": href, "source": "Fox News"})
-    print(f"fox-news found {len(headlines)} headlines")
-    return headlines
+    links = soup.select("main article h2.title a")
+    return [
+        {
+            "title": link.get_text(strip=True),
+            "url": f"https://www.foxnews.com{link.get('href')}" if not link.get("href").startswith("http") else link.get("href"),
+            "source": "Fox News"
+        }
+        for link in links[:15] if link.get("href")
+    ]
 
 @app.route("/api/topstories")
 def top_stories():
     try:
         stories = scrape_cnn() + scrape_nyt() + scrape_fox()
-        print(f"✅ Total scraped top stories: {len(stories)}")
         return jsonify(stories)
     except Exception as e:
-        print(f"❌ Top stories error: {e}")
+        print(f"Top stories error: {e}")
         return jsonify([])
 
 @app.route("/api/category/<category>")
@@ -97,21 +92,19 @@ def category_news(category):
             for a in articles
             if a.get("source") and a.get("source").lower().replace(" ", "-") in PREFERRED_SOURCES
         ]
-        print(f"✅ {category}: {len(filtered)} articles")
         return jsonify(filtered)
     except Exception as e:
-        print(f"❌ Category fetch error ({category}): {e}")
+        print(f"Category fetch error ({category}): {e}")
         return jsonify([])
 
 @app.route("/api/summarize", methods=["POST"])
 def summarize():
     try:
-        data = request.json
-        titles = data.get("titles", [])
+        titles = request.json.get("titles", [])
         if not titles or not isinstance(titles, list):
             return jsonify({"summary": "No headlines to summarize."})
 
-        prompt = "Summarize the following news headlines:\n" + "\n".join(titles)
+        prompt = "Summarize the following headlines:\n" + "\n".join(titles)
         response = openai.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
@@ -119,8 +112,35 @@ def summarize():
         )
         return jsonify({"summary": response.choices[0].message.content.strip()})
     except Exception as e:
-        print(f"❌ AI summary error: {e}")
+        print(f"AI summary error: {e}")
         return jsonify({"summary": "Unable to generate summary."})
+
+@app.route("/api/trending/<category>")
+def trending_topics(category):
+    try:
+        url = "http://api.mediastack.com/v1/news"
+        params = {
+            "access_key": MEDIASTACK_API_KEY,
+            "languages": "en",
+            "countries": "us",
+            "sort": "published_desc",
+            "limit": 50,
+            "keywords": category
+        }
+        res = requests.get(url, params=params)
+        res.raise_for_status()
+        articles = res.json().get("data", [])
+        titles = [a["title"] for a in articles if a.get("title")]
+
+        text = " ".join(titles)
+        keywords = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', text)
+        counts = Counter(keywords)
+        top = [k for k, v in counts.most_common(10) if len(k.split()) <= 3]
+
+        return jsonify({"trending": top})
+    except Exception as e:
+        print(f"Trending topics error ({category}): {e}")
+        return jsonify({"trending": []})
 
 if __name__ == "__main__":
     app.run(debug=True)
