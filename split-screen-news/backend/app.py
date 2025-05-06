@@ -130,6 +130,8 @@ def top_stories():
 @app.route("/api/category/<slug>")
 def category(slug):
     logging.info(f"Fetching category: {slug}")
+    if slug.lower() in ["top-stories", "top stories"]:
+        return jsonify({"headlines": []})
     articles = fetch_mediastack_articles(slug)
     return jsonify({"headlines": articles})
 
