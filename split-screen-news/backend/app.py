@@ -32,6 +32,12 @@ VALID_CATEGORIES = [
     "general", "business", "entertainment", "health", "science", "sports", "technology"
 ]
 
+# In-memory cache for top stories
+CACHE = {
+    "data": [],
+    "timestamp": None
+}
+
 @app.route("/")
 def index():
     return "✅ Flask backend is live."
@@ -72,8 +78,12 @@ def get_category_news(slug):
 @app.route("/api/topstories")
 def get_top_stories():
     try:
-        today_str = datetime.utcnow().strftime('%Y-%m-%d')
-        twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
+        now = datetime.utcnow()
+        if CACHE["timestamp"] and now - CACHE["timestamp"] < timedelta(minutes=10):
+            return jsonify({"top_stories": CACHE["data"]})
+
+        today_str = now.strftime('%Y-%m-%d')
+        twenty_four_hours_ago = now - timedelta(hours=24)
 
         params = {
             'access_key': MEDIASTACK_KEY,
@@ -135,6 +145,9 @@ def get_top_stories():
             }
             for a in front_page_worthy
         ][:8]  # limit to top 8 results
+
+        CACHE["data"] = highlights
+        CACHE["timestamp"] = now
 
         return jsonify({"top_stories": highlights})
 
