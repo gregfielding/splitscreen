@@ -11,6 +11,12 @@ CORS(app)
 
 logging.basicConfig(level=logging.INFO)
 
+PREFERRED_SOURCES = {
+    "New York Times", "CNN", "Fox News", "The Guardian", "NPR",
+    "BBC News", "Reuters", "Associated Press", "NBC News", "The Hill",
+    "Al Jazeera", "Washington Post"
+}
+
 # Helper to fetch headlines from a given URL using basic scraping
 def scrape_homepage(url, selector, source_name):
     try:
@@ -46,7 +52,7 @@ def top_stories():
     fox = scrape_homepage("https://www.foxnews.com", "main h2.title a", "Fox News")
 
     combined = cnn + nyt + fox
-    combined = [a for a in combined if a['title'] and a['url']]
+    combined = [a for a in combined if a['title'] and a['url'] and a['source'] in PREFERRED_SOURCES]
     return jsonify({"top_stories": combined})
 
 @app.route("/api/health")
