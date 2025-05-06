@@ -17,7 +17,6 @@ OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_KEY)
 
 MEDIASTACK_URL = "https://api.mediastack.com/v1/news"
-RENDER_URL = "https://splitscreen-jkbx.onrender.com"
 
 PREFERRED_SOURCE_IDS = [
     "cnn", "foxnews", "abcnews", "usatoday", "cbsnews", "nbcnews", "reuters",
@@ -27,7 +26,7 @@ PREFERRED_SOURCE_IDS = [
     "bostonherald", "denverpost", "latimes", "mercurynews", "ocregister"
 ]
 
-TOP_STORY_SOURCES = ["cnn", "foxnews", "the-new-york-times"]
+TOP_STORY_SOURCES = ["cnn", "foxnews", "new-york-times"]
 
 VALID_CATEGORIES = [
     "general", "business", "entertainment", "health", "science", "sports", "technology"
@@ -36,7 +35,8 @@ VALID_CATEGORIES = [
 CACHE = {
     "data": [],
     "timestamp": None,
-    "trending": {}
+    "trending": {},
+    "summaries": {}
 }
 
 @app.route("/")
@@ -99,7 +99,7 @@ def search_keywords():
             'languages': 'en',
             'countries': 'us',
             'sort': 'published_desc',
-            'limit': 50,
+            'limit': 60,
             'sources': ",".join(PREFERRED_SOURCE_IDS),
             'keywords': keyword
         }
@@ -118,6 +118,52 @@ def search_keywords():
             for a in data
         ]
         return jsonify({"results": filtered})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/summary")
+def generate_summary():
+    query = request.args.get("q")
+    if not query:
+        return jsonify({"error": "Missing search query"}), 400
+
+    if query in CACHE["summaries"]:
+        return jsonify({"summary": CACHE["summaries"][query]})
+
+    try:
+        is_political_prompt = (
+            f"Is the following topic political in nature?\n\n"
+            f"Topic: {query}\n\n"
+            f"Answer 'yes' or 'no'."
+        )
+        is_political_response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": is_political_prompt}
+            ],
+            temperature=0.3
+        )
+        verdict = is_political_response.choices[0].message.content.strip().lower()
+
+        if "yes" in verdict:
+            prompt = f"Summarize how left-leaning and right-leaning media outlets are covering the topic '{query}'. Be concise but call out any differences in tone or emphasis."
+        else:
+            prompt = f"Summarize the major news or public events related to '{query}' in 3–5 sentences."
+
+        summary_response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an expert news analyst."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.5
+        )
+        final_summary = summary_response.choices[0].message.content.strip()
+        CACHE["summaries"][query] = final_summary
+
+        return jsonify({"summary": final_summary})
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
