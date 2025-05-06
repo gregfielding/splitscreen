@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import re
 import logging
 import os
+import openai
 
 app = Flask(__name__)
 CORS(app)
@@ -18,8 +19,10 @@ PREFERRED_SOURCES = {
     "Al Jazeera", "Washington Post"
 }
 
-MEDIASTACK_API_KEY = os.getenv("MEDIASTACK_API_KEY") or "e2deb908a64f6d8830292dc66d08e0e2"
+MEDIASTACK_API_KEY = os.environ["MEDIASTACK_API_KEY"]
 MEDIASTACK_BASE_URL = "http://api.mediastack.com/v1/news"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
 
 seen_titles = set()
 def is_duplicate(title):
@@ -110,16 +113,31 @@ def trending(slug):
     logging.info(f"Extracting trending topics for: {slug}")
     seen_titles.clear()
     articles = fetch_mediastack_articles(slug)
-    keyword_counts = {}
-    for a in articles:
-        title = a["title"]
-        words = re.findall(r"\b[A-Z][a-z]+\b", title)
-        for word in words:
-            keyword_counts[word] = keyword_counts.get(word, 0) + 1
+    titles = [a["title"] for a in articles if a.get("title")]
 
-    sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
-    top_keywords = [kw for kw, count in sorted_keywords if count > 1][:10]
-    return jsonify({"trending": top_keywords})
+    try:
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant that extracts trending topics from news headlines and summarizes the general theme."},
+            {"role": "user", "content": f"From these headlines, summarize what the news is mostly about and return a short paragraph followed by 8-10 trending topic tags:\n{titles}"}
+        ]
+        chat = openai.chat.completions.create(
+            model="gpt-4",
+            messages=messages,
+            temperature=0.4
+        )
+        content = chat.choices[0].message.content.strip()
+        summary_part, *tags_part = content.split("Tags:") if "Tags:" in content else (content, [])
+        tags = re.findall(r"[#\-]?\b([A-Z][a-zA-Z0-9\-']{2,})\b", ''.join(tags_part))
+        return jsonify({"summary": summary_part.strip(), "trending": list(set(tags))[:10]})
+    except Exception as e:
+        logging.warning(f"Fallback to keyword extraction: {e}")
+        keyword_counts = {}
+        for t in titles:
+            words = re.findall(r"\b[A-Z][a-z]+\b", t)
+            for w in words:
+                keyword_counts[w] = keyword_counts.get(w, 0) + 1
+        sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
+        return jsonify({"summary": "", "trending": [kw for kw, _ in sorted_keywords[:10]]})
 
 @app.route("/api/health")
 def health():
