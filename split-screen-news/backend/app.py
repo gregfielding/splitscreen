@@ -3,13 +3,20 @@ import requests
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from bs4 import BeautifulSoup
-from openai import OpenAI
+import openai
 
 app = Flask(__name__)
 CORS(app)
 
+openai.api_key = os.getenv("OPENAI_API_KEY")
+MEDIASTACK_API_KEY = os.getenv("MEDIASTACK_API_KEY")
+
 HEADERS = {"User-Agent": "Mozilla/5.0"}
-openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+PREFERRED_SOURCES = {
+    "cnn", "fox-news", "new-york-times", "washingtonpost", "aljazeera",
+    "bostonherald", "denverpost", "latimes", "mercurynews", "ocregister"
+}
 
 def scrape_cnn():
     url = "https://www.cnn.com"
@@ -59,11 +66,41 @@ def scrape_fox():
 @app.route("/api/topstories")
 def top_stories():
     try:
-        all_stories = scrape_cnn() + scrape_nyt() + scrape_fox()
-        print(f"✅ Total scraped top stories: {len(all_stories)}")
-        return jsonify(all_stories)
+        stories = scrape_cnn() + scrape_nyt() + scrape_fox()
+        print(f"✅ Total scraped top stories: {len(stories)}")
+        return jsonify(stories)
     except Exception as e:
-        print(f"ERROR scraping top stories: {e}")
+        print(f"❌ Top stories error: {e}")
+        return jsonify([])
+
+@app.route("/api/category/<category>")
+def category_news(category):
+    try:
+        url = "http://api.mediastack.com/v1/news"
+        params = {
+            "access_key": MEDIASTACK_API_KEY,
+            "languages": "en",
+            "countries": "us",
+            "sort": "published_desc",
+            "limit": 50,
+            "keywords": category
+        }
+        res = requests.get(url, params=params)
+        res.raise_for_status()
+        articles = res.json().get("data", [])
+        filtered = [
+            {
+                "title": a["title"],
+                "url": a["url"],
+                "source": a["source"]
+            }
+            for a in articles
+            if a.get("source") and a.get("source").lower().replace(" ", "-") in PREFERRED_SOURCES
+        ]
+        print(f"✅ {category}: {len(filtered)} articles")
+        return jsonify(filtered)
+    except Exception as e:
+        print(f"❌ Category fetch error ({category}): {e}")
         return jsonify([])
 
 @app.route("/api/summarize", methods=["POST"])
@@ -82,8 +119,8 @@ def summarize():
         )
         return jsonify({"summary": response.choices[0].message.content.strip()})
     except Exception as e:
-        print(f"AI summary error: {e}")
-        return jsonify({"summary": "Unable to generate summary at this time."})
+        print(f"❌ AI summary error: {e}")
+        return jsonify({"summary": "Unable to generate summary."})
 
 if __name__ == "__main__":
     app.run(debug=True)
