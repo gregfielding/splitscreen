@@ -77,7 +77,7 @@ def get_top_stories():
             'languages': 'en',
             'countries': 'us',
             'sort': 'published_desc',
-            'limit': 100,
+            'limit': 40,
             'sources': ",".join(TOP_STORY_SOURCES)
         }
         response = requests.get(MEDIASTACK_URL, params=params)
@@ -85,7 +85,9 @@ def get_top_stories():
         raw_articles = response.json().get("data", [])
 
         front_page_worthy = []
-        for article in raw_articles:
+        for i, article in enumerate(raw_articles):
+            if i >= 15:  # Soft limit on AI calls to prevent timeouts
+                break
             title = article.get("title")
             description = article.get("description")
             if not title:
@@ -120,7 +122,7 @@ def get_top_stories():
                 "published_at": a.get("published_at")
             }
             for a in front_page_worthy
-        ][:8]  # limit to top 8 results
+        ][:8]
 
         return jsonify({"top_stories": highlights})
 
