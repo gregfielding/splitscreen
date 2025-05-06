@@ -17,7 +17,8 @@ PREFERRED_SOURCES = {
     "Al Jazeera", "Washington Post"
 }
 
-# Helper to fetch headlines from a given URL using basic scraping
+# Scraping utility
+
 def scrape_homepage(url, selector, source_name):
     try:
         response = requests.get(url, timeout=6)
@@ -54,6 +55,29 @@ def top_stories():
     combined = cnn + nyt + fox
     combined = [a for a in combined if a['title'] and a['url'] and a['source'] in PREFERRED_SOURCES]
     return jsonify({"top_stories": combined})
+
+@app.route("/api/category/<slug>")
+def category(slug):
+    api_key = "e2deb908a64f6d8830292dc66d08e0e2"  # Replace with env in production
+    url = f"http://api.mediastack.com/v1/news?access_key={api_key}&categories={slug}&languages=en&countries=us&limit=100&sort=published_desc"
+    try:
+        res = requests.get(url)
+        res.raise_for_status()
+        data = res.json()
+        filtered = [a for a in data.get("data", []) if a.get("source") in PREFERRED_SOURCES and a.get("title") and a.get("url")]
+        headlines = [
+            {
+                "title": a["title"],
+                "url": a["url"],
+                "source": a["source"],
+                "description": a.get("description", ""),
+                "published_at": a.get("published_at", "")
+            } for a in filtered
+        ]
+        return jsonify({"headlines": headlines})
+    except Exception as e:
+        logging.error(f"Category fetch failed for {slug}: {e}")
+        return jsonify({"headlines": []})
 
 @app.route("/api/health")
 def health():
