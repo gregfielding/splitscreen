@@ -6,6 +6,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 from datetime import datetime, timedelta
+import re
 
 app = Flask(__name__)
 CORS(app)
@@ -34,11 +35,14 @@ def is_recent(article, days=2):
     except:
         return False
 
+def normalize(text):
+    return re.sub(r'[^a-z0-9]+', '', text.lower().strip())
+
 def dedupe_articles(articles):
     seen = set()
     unique = []
     for a in articles:
-        key = a["title"].strip().lower()
+        key = normalize(a.get("title", "")) + normalize(a.get("source", ""))
         if key not in seen:
             seen.add(key)
             unique.append(a)
