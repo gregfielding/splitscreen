@@ -21,7 +21,6 @@ PREFERRED_SOURCES = {
 MEDIASTACK_API_KEY = os.getenv("MEDIASTACK_API_KEY") or "e2deb908a64f6d8830292dc66d08e0e2"
 MEDIASTACK_BASE_URL = "http://api.mediastack.com/v1/news"
 
-# UTIL: clean titles
 seen_titles = set()
 def is_duplicate(title):
     t = re.sub(r'[^a-zA-Z0-9 ]', '', title).strip().lower()
@@ -30,7 +29,6 @@ def is_duplicate(title):
     seen_titles.add(t)
     return False
 
-# UTIL: fetch from MediaStack with filters
 def fetch_mediastack_articles(category):
     try:
         params = {
@@ -62,7 +60,6 @@ def fetch_mediastack_articles(category):
         logging.error(f"Error fetching {category} category: {e}")
         return []
 
-# TOP STORIES (from homepage scraping)
 def scrape_homepage(url, selector, source_name):
     try:
         response = requests.get(url, timeout=6)
@@ -97,7 +94,6 @@ def top_stories():
     cnn = scrape_homepage("https://www.cnn.com", "h3.cd__headline a", "CNN")
     nyt = scrape_homepage("https://www.nytimes.com", "section[data-block-tracking-id='Top Stories'] h3 a", "New York Times")
     fox = scrape_homepage("https://www.foxnews.com", "main h2.title a", "Fox News")
-
     combined = cnn + nyt + fox
     combined = [a for a in combined if a['title'] and a['url'] and a['source'] in PREFERRED_SOURCES]
     return jsonify({"top_stories": combined})
@@ -105,8 +101,25 @@ def top_stories():
 @app.route("/api/category/<slug>")
 def category(slug):
     logging.info(f"Fetching category: {slug}")
+    seen_titles.clear()
     articles = fetch_mediastack_articles(slug)
     return jsonify({"headlines": articles})
+
+@app.route("/api/trending/<slug>")
+def trending(slug):
+    logging.info(f"Extracting trending topics for: {slug}")
+    seen_titles.clear()
+    articles = fetch_mediastack_articles(slug)
+    keyword_counts = {}
+    for a in articles:
+        title = a["title"]
+        words = re.findall(r"\b[A-Z][a-z]+\b", title)
+        for word in words:
+            keyword_counts[word] = keyword_counts.get(word, 0) + 1
+
+    sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
+    top_keywords = [kw for kw, count in sorted_keywords if count > 1][:10]
+    return jsonify({"trending": top_keywords})
 
 @app.route("/api/health")
 def health():
