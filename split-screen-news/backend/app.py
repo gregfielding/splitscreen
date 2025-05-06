@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import re
 import logging
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -17,8 +18,51 @@ PREFERRED_SOURCES = {
     "Al Jazeera", "Washington Post"
 }
 
-# Scraping utility
+MEDIASTACK_API_KEY = os.getenv("MEDIASTACK_API_KEY") or "e2deb908a64f6d8830292dc66d08e0e2"
+MEDIASTACK_BASE_URL = "http://api.mediastack.com/v1/news"
 
+# UTIL: clean titles
+seen_titles = set()
+def is_duplicate(title):
+    t = re.sub(r'[^a-zA-Z0-9 ]', '', title).strip().lower()
+    if t in seen_titles:
+        return True
+    seen_titles.add(t)
+    return False
+
+# UTIL: fetch from MediaStack with filters
+def fetch_mediastack_articles(category):
+    try:
+        params = {
+            'access_key': MEDIASTACK_API_KEY,
+            'languages': 'en',
+            'countries': 'us',
+            'sort': 'published_desc',
+            'limit': 75,
+            'categories': category
+        }
+        response = requests.get(MEDIASTACK_BASE_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
+        articles = []
+        for a in data.get('data', []):
+            if not a.get("title") or not a.get("url"):
+                continue
+            if a["source"] not in PREFERRED_SOURCES or is_duplicate(a["title"]):
+                continue
+            articles.append({
+                "title": a["title"],
+                "url": a["url"],
+                "source": a["source"],
+                "description": a.get("description", ""),
+                "published_at": a.get("published_at", datetime.utcnow().isoformat())
+            })
+        return articles
+    except Exception as e:
+        logging.error(f"Error fetching {category} category: {e}")
+        return []
+
+# TOP STORIES (from homepage scraping)
 def scrape_homepage(url, selector, source_name):
     try:
         response = requests.get(url, timeout=6)
@@ -33,6 +77,8 @@ def scrape_homepage(url, selector, source_name):
                 continue
             if not href.startswith("http"):
                 href = requests.compat.urljoin(url, href)
+            if is_duplicate(title):
+                continue
             headlines.append({
                 "title": title,
                 "url": href,
@@ -58,30 +104,13 @@ def top_stories():
 
 @app.route("/api/category/<slug>")
 def category(slug):
-    api_key = "e2deb908a64f6d8830292dc66d08e0e2"  # Replace with env in production
-    url = f"http://api.mediastack.com/v1/news?access_key={api_key}&categories={slug}&languages=en&countries=us&limit=100&sort=published_desc"
-    try:
-        res = requests.get(url)
-        res.raise_for_status()
-        data = res.json()
-        filtered = [a for a in data.get("data", []) if a.get("source") in PREFERRED_SOURCES and a.get("title") and a.get("url")]
-        headlines = [
-            {
-                "title": a["title"],
-                "url": a["url"],
-                "source": a["source"],
-                "description": a.get("description", ""),
-                "published_at": a.get("published_at", "")
-            } for a in filtered
-        ]
-        return jsonify({"headlines": headlines})
-    except Exception as e:
-        logging.error(f"Category fetch failed for {slug}: {e}")
-        return jsonify({"headlines": []})
+    logging.info(f"Fetching category: {slug}")
+    articles = fetch_mediastack_articles(slug)
+    return jsonify({"headlines": articles})
 
 @app.route("/api/health")
 def health():
-    return jsonify({"message": "Stub for health check."})
+    return jsonify({"message": "OK"})
 
 if __name__ == '__main__':
     app.run(debug=True)
