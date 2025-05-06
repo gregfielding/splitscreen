@@ -72,22 +72,34 @@ def get_category_news(slug):
 @app.route("/api/topstories")
 def get_top_stories():
     try:
+        today_str = datetime.utcnow().strftime('%Y-%m-%d')
+        twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
+
         params = {
             'access_key': MEDIASTACK_KEY,
             'languages': 'en',
             'countries': 'us',
             'sort': 'published_desc',
-            'limit': 40,
-            'sources': ",".join(TOP_STORY_SOURCES)
+            'limit': 50,
+            'sources': ",".join(TOP_STORY_SOURCES),
+            'date': today_str
         }
         response = requests.get(MEDIASTACK_URL, params=params)
         response.raise_for_status()
         raw_articles = response.json().get("data", [])
 
         front_page_worthy = []
-        for i, article in enumerate(raw_articles):
-            if i >= 15:  # Soft limit on AI calls to prevent timeouts
-                break
+        for article in raw_articles:
+            pub_date_str = article.get("published_at")
+            if not pub_date_str:
+                continue
+            try:
+                pub_date = datetime.strptime(pub_date_str, "%Y-%m-%dT%H:%M:%S+0000")
+                if pub_date < twenty_four_hours_ago:
+                    continue
+            except:
+                continue
+
             title = article.get("title")
             description = article.get("description")
             if not title:
@@ -122,7 +134,7 @@ def get_top_stories():
                 "published_at": a.get("published_at")
             }
             for a in front_page_worthy
-        ][:8]
+        ][:8]  # limit to top 8 results
 
         return jsonify({"top_stories": highlights})
 
