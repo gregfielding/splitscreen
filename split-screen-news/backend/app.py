@@ -138,7 +138,10 @@ def category(slug):
 @app.route("/api/trending/<slug>")
 def trending(slug):
     logging.info(f"Extracting trending topics for: {slug}")
-    articles = fetch_mediastack_articles(slug)
+    if slug.lower() in ["top-stories", "top stories"]:
+        articles = []
+    else:
+        articles = fetch_mediastack_articles(slug)
     titles = [a.get("title", "") for a in articles if isinstance(a.get("title"), str)]
     title_text = "\n".join(titles)
     try:
