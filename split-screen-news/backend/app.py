@@ -14,13 +14,15 @@ CORS(app)
 logging.basicConfig(level=logging.INFO)
 
 PREFERRED_SOURCES = {
-    "New York Times", "CNN", "Fox News", "The Guardian", "NPR",
-    "BBC News", "Reuters", "Associated Press", "NBC News", "The Hill",
-    "Al Jazeera", "Washington Post"
+    "new-york-times", "cnn", "fox-news", "the-guardian", "npr",
+    "bbc-news", "reuters", "associated-press", "nbc-news", "the-hill",
+    "al-jazeera", "washington-post", "latimes", "denverpost", "ocregister",
+    "mercurynews", "bostonherald"
 }
 
 MEDIASTACK_API_KEY = os.environ["MEDIASTACK_API_KEY"]
 MEDIASTACK_BASE_URL = "http://api.mediastack.com/v1/news"
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
@@ -47,9 +49,8 @@ def fetch_mediastack_articles(category):
         data = response.json()
         articles = []
         for a in data.get('data', []):
-            if not a.get("title") or not a.get("url"):
-                continue
-            if a["source"] not in PREFERRED_SOURCES or is_duplicate(a["title"]):
+            source = a.get("source", "").lower()
+            if not a.get("title") or not a.get("url") or source not in PREFERRED_SOURCES or is_duplicate(a["title"]):
                 continue
             articles.append({
                 "title": a["title"],
@@ -94,11 +95,11 @@ def scrape_homepage(url, selector, source_name):
 
 @app.route("/api/topstories")
 def top_stories():
-    cnn = scrape_homepage("https://www.cnn.com", "h3.cd__headline a", "CNN")
-    nyt = scrape_homepage("https://www.nytimes.com", "section[data-block-tracking-id='Top Stories'] h3 a", "New York Times")
-    fox = scrape_homepage("https://www.foxnews.com", "main h2.title a", "Fox News")
+    cnn = scrape_homepage("https://www.cnn.com", "h3.cd__headline a", "cnn")
+    nyt = scrape_homepage("https://www.nytimes.com", "section[data-block-tracking-id='Top Stories'] h3 a", "new-york-times")
+    fox = scrape_homepage("https://www.foxnews.com", "main h2.title a", "fox-news")
     combined = cnn + nyt + fox
-    combined = [a for a in combined if a['title'] and a['url'] and a['source'] in PREFERRED_SOURCES]
+    combined = [a for a in combined if a['title'] and a['url'] and a['source'].lower() in PREFERRED_SOURCES]
     return jsonify({"top_stories": combined})
 
 @app.route("/api/category/<slug>")
@@ -127,13 +128,13 @@ def trending(slug):
         )
         content = chat.choices[0].message.content.strip()
         summary_part, *tags_part = content.split("Tags:") if "Tags:" in content else (content, [])
-        tags = re.findall(r"[#\-]?\b([A-Z][a-zA-Z0-9\-']{2,})\b", ''.join(tags_part))
+        tags = re.findall(r"[#\\-]?\\b([A-Z][a-zA-Z0-9\\-']{2,})\\b", ''.join(tags_part))
         return jsonify({"summary": summary_part.strip(), "trending": list(set(tags))[:10]})
     except Exception as e:
         logging.warning(f"Fallback to keyword extraction: {e}")
         keyword_counts = {}
         for t in titles:
-            words = re.findall(r"\b[A-Z][a-z]+\b", t)
+            words = re.findall(r"\\b[A-Z][a-z]+\\b", t)
             for w in words:
                 keyword_counts[w] = keyword_counts.get(w, 0) + 1
         sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
