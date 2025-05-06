@@ -22,12 +22,13 @@ def scrape_homepage(url, selector, source_name):
         for el in elements:
             title = el.get_text(strip=True)
             href = el.get("href")
-            if not href:
+            if not title or not href:
                 continue
-            full_url = href if href.startswith("http") else url.rstrip("/") + href
+            if not href.startswith("http"):
+                href = requests.compat.urljoin(url, href)
             headlines.append({
                 "title": title,
-                "url": full_url,
+                "url": href,
                 "source": source_name,
                 "published_at": datetime.utcnow().isoformat(),
                 "description": ""
@@ -45,6 +46,7 @@ def top_stories():
     fox = scrape_homepage("https://www.foxnews.com", "main h2.title a", "Fox News")
 
     combined = cnn + nyt + fox
+    combined = [a for a in combined if a['title'] and a['url']]
     return jsonify({"top_stories": combined})
 
 @app.route("/api/health")
