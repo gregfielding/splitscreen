@@ -28,37 +28,31 @@ PREFERRED_SOURCES = {
 def index():
     return "✅ Flask backend is live."
 
-@app.route("/api/sources/all")
-def get_all_sources():
-    try:
-        url = f"https://api.mediastack.com/v1/sources?access_key={MEDIASTACK_KEY}"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        return jsonify(data.get("data", []))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route("/api/sources/live")
 def get_live_sources():
     try:
-        params = {
-            'access_key': MEDIASTACK_KEY,
-            'languages': 'en',
-            'countries': 'us',
-            'sort': 'published_desc',
-            'limit': 100
-        }
-        response = requests.get(MEDIASTACK_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
+        all_sources = set()
+        for offset in [0, 100, 200, 300, 400]:
+            params = {
+                'access_key': MEDIASTACK_KEY,
+                'languages': 'en',
+                'countries': 'us',
+                'sort': 'published_desc',
+                'limit': 100,
+                'offset': offset
+            }
+            response = requests.get(MEDIASTACK_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+            all_sources.update(
+                a.get("source") for a in data.get("data", []) if a.get("source")
+            )
 
-        sources = sorted({a.get("source") for a in data.get("data", []) if a.get("source")})
-        return jsonify({"sources": sources})
+        return jsonify({"sources": sorted(all_sources)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ... (all other routes unchanged)
+# all other routes unchanged...
 
 if __name__ == "__main__":
     app.run(debug=True)
