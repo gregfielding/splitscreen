@@ -16,8 +16,10 @@ MEDIASTACK_API_KEY = os.getenv("MEDIASTACK_API_KEY")
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 PREFERRED_SOURCES = {
-    "cnn", "fox-news", "new-york-times", "washingtonpost", "aljazeera",
-    "bostonherald", "denverpost", "latimes", "mercurynews", "ocregister"
+ "new-york-times", "cnn", "fox-news", "the-guardian", "npr",
+ "bbc-news", "reuters", "associated-press", "nbc-news", "the-hill",
+ "al-jazeera", "washington-post", "latimes", "denverpost", "ocregister",
+ "mercurynews", "bostonherald"
 }
 
 def scrape_cnn():
