@@ -2,7 +2,7 @@ import os
 import json
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from openai import OpenAI
 from datetime import datetime, timedelta
@@ -47,13 +47,14 @@ def index():
 def get_category_news(slug):
     if slug not in VALID_CATEGORIES:
         return jsonify({"error": "Invalid category."}), 400
+
     try:
         params = {
             'access_key': MEDIASTACK_KEY,
             'languages': 'en',
             'countries': 'us',
             'sort': 'published_desc',
-            'limit': 40,
+            'limit': 80,
             'sources': ",".join(PREFERRED_SOURCE_IDS),
             'categories': slug
         }
@@ -73,9 +74,8 @@ def get_category_news(slug):
             for a in articles
         ]
 
-        # cache trending keywords
-        keywords = extract_keywords([h["title"] for h in headlines])
-        CACHE["trending"][slug] = keywords
+        phrases = extract_phrases([h["title"] for h in headlines])
+        CACHE["trending"][slug] = phrases
 
         return jsonify({"category": slug, "headlines": headlines})
     except Exception as e:
@@ -87,14 +87,50 @@ def get_trending_keywords(slug):
         return jsonify({"error": "No trending data yet for this category."}), 404
     return jsonify({"trending": CACHE["trending"][slug]})
 
-def extract_keywords(titles):
-    stopwords = {"the", "and", "for", "with", "over", "from", "into", "that", "this", "will", "have", "been", "news", "about"}
-    words = []
+@app.route("/api/search")
+def search_keywords():
+    keyword = request.args.get("q")
+    if not keyword:
+        return jsonify({"error": "Missing search term"}), 400
+
+    try:
+        params = {
+            'access_key': MEDIASTACK_KEY,
+            'languages': 'en',
+            'countries': 'us',
+            'sort': 'published_desc',
+            'limit': 50,
+            'sources': ",".join(PREFERRED_SOURCE_IDS),
+            'keywords': keyword
+        }
+        response = requests.get(MEDIASTACK_URL, params=params)
+        response.raise_for_status()
+        data = response.json().get("data", [])
+
+        filtered = [
+            {
+                "title": a["title"],
+                "description": a.get("description"),
+                "url": a["url"],
+                "source": a.get("source"),
+                "published_at": a.get("published_at")
+            }
+            for a in data
+        ]
+        return jsonify({"results": filtered})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+def extract_phrases(titles):
+    phrases = []
     for title in titles:
-        words += re.findall(r'\b[A-Z][a-z]{2,}\b', title)
-    counter = Counter(words)
-    filtered = [w for w, count in counter.most_common(10) if w.lower() not in stopwords and len(w) > 2]
-    return filtered
+        clean_title = re.sub(r'["\'\-]', '', title)
+        words = clean_title.split()
+        for i in range(len(words) - 1):
+            if words[i][0].isupper() and words[i+1][0].isupper():
+                phrases.append(f"{words[i]} {words[i+1]}")
+    counter = Counter(phrases)
+    return [phrase for phrase, count in counter.most_common(10)]
 
 @app.route("/api/topstories")
 def get_top_stories():
