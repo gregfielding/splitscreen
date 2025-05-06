@@ -19,9 +19,11 @@ MEDIASTACK_URL = "https://api.mediastack.com/v1/news"
 RENDER_URL = "https://splitscreen-jkbx.onrender.com"
 
 PREFERRED_SOURCE_IDS = [
-    "forbes", "cbssports.com", "espn", "tmz", "techcrunch",
-    "the-new-york-times", "bloomberg-latest-and-live-business", "yahoo-news",
-    "bostonherald", "denverpost", "latimes", "mercurynews", "ocregister",
+    "cnn", "foxnews", "abcnews", "usatoday", "cbsnews", "nbcnews", "reuters",
+    "bloomberg", "businessinsider", "forbes", "espn", "cbssports.com", "tmz",
+    "techcrunch", "nypost", "thehill", "yahoo-news", "new-york-times",
+    "washingtonpost", "theguardian", "bbc", "bostonherald", "denverpost",
+    "latimes", "mercurynews", "ocregister"
 ]
 
 VALID_CATEGORIES = [
