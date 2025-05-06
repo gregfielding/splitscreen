@@ -112,14 +112,15 @@ def category(slug):
 @app.route("/api/trending/<slug>")
 def trending(slug):
     logging.info(f"Extracting trending topics for: {slug}")
-    seen_titles.clear()
     articles = fetch_mediastack_articles(slug)
-    titles = [a["title"] for a in articles if a.get("title")]
+    titles = [a.get("title", "") for a in articles if isinstance(a.get("title"), str)]
+
+    title_text = "\n".join(titles)
 
     try:
         messages = [
             {"role": "system", "content": "You are a helpful assistant that extracts trending topics from news headlines and summarizes the general theme."},
-            {"role": "user", "content": f"From these headlines, summarize what the news is mostly about and return a short paragraph followed by 8-10 trending topic tags:\n{titles}"}
+            {"role": "user", "content": f"From these headlines, summarize what the news is mostly about and return a short paragraph followed by 8-10 trending topic tags:\n{title_text}"}
         ]
         chat = openai.chat.completions.create(
             model="gpt-4",
@@ -128,8 +129,18 @@ def trending(slug):
         )
         content = chat.choices[0].message.content.strip()
         summary_part, *tags_part = content.split("Tags:") if "Tags:" in content else (content, [])
-        tags = re.findall(r"[#\\-]?\\b([A-Z][a-zA-Z0-9\\-']{2,})\\b", ''.join(tags_part))
+        tags = re.findall(r"\b([A-Z][a-zA-Z0-9\-']{2,})\b", ''.join(tags_part))
         return jsonify({"summary": summary_part.strip(), "trending": list(set(tags))[:10]})
+    except Exception as e:
+        logging.warning(f"Fallback to keyword extraction: {e}")
+        keyword_counts = {}
+        for t in titles:
+            words = re.findall(r"\b[A-Z][a-z]+\b", t)
+            for w in words:
+                keyword_counts[w] = keyword_counts.get(w, 0) + 1
+        sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
+        return jsonify({"summary": "", "trending": [kw for kw, _ in sorted_keywords[:10]]})
+
     except Exception as e:
         logging.warning(f"Fallback to keyword extraction: {e}")
         keyword_counts = {}
