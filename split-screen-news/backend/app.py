@@ -7,6 +7,7 @@ from flask_cors import CORS
 from openai import OpenAI
 from datetime import datetime, timedelta
 import re
+from collections import Counter
 
 app = Flask(__name__)
 CORS(app)
@@ -32,10 +33,10 @@ VALID_CATEGORIES = [
     "general", "business", "entertainment", "health", "science", "sports", "technology"
 ]
 
-# In-memory cache for top stories
 CACHE = {
     "data": [],
-    "timestamp": None
+    "timestamp": None,
+    "trending": {}
 }
 
 @app.route("/")
@@ -71,9 +72,29 @@ def get_category_news(slug):
             }
             for a in articles
         ]
+
+        # cache trending keywords
+        keywords = extract_keywords([h["title"] for h in headlines])
+        CACHE["trending"][slug] = keywords
+
         return jsonify({"category": slug, "headlines": headlines})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/trending/<slug>")
+def get_trending_keywords(slug):
+    if slug not in CACHE["trending"]:
+        return jsonify({"error": "No trending data yet for this category."}), 404
+    return jsonify({"trending": CACHE["trending"][slug]})
+
+def extract_keywords(titles):
+    stopwords = {"the", "and", "for", "with", "over", "from", "into", "that", "this", "will", "have", "been", "news", "about"}
+    words = []
+    for title in titles:
+        words += re.findall(r'\b[A-Z][a-z]{2,}\b', title)
+    counter = Counter(words)
+    filtered = [w for w, count in counter.most_common(10) if w.lower() not in stopwords and len(w) > 2]
+    return filtered
 
 @app.route("/api/topstories")
 def get_top_stories():
@@ -144,7 +165,7 @@ def get_top_stories():
                 "published_at": a.get("published_at")
             }
             for a in front_page_worthy
-        ][:8]  # limit to top 8 results
+        ][:8]
 
         CACHE["data"] = highlights
         CACHE["timestamp"] = now
