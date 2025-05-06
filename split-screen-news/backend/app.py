@@ -35,9 +35,8 @@ def is_duplicate(title):
     seen_titles.add(t)
     return False
 
-# In-memory cache
 cache = {}
-CACHE_DURATION = 600  # seconds (10 minutes)
+CACHE_DURATION = 600
 
 def get_cached(key):
     entry = cache.get(key)
@@ -49,6 +48,8 @@ def set_cache(key, data):
     cache[key] = {'data': data, 'timestamp': time.time()}
 
 def fetch_mediastack_articles(category):
+    if category.lower() == 'top-stories':
+        return []  # Don't hit Mediastack for this
     cached = get_cached(f"category:{category}")
     if cached:
         return cached
@@ -59,7 +60,7 @@ def fetch_mediastack_articles(category):
             'countries': 'us',
             'sort': 'published_desc',
             'limit': 75,
-            'categories': 'general' if category.lower() == 'top-stories' else category
+            'categories': category
         }
         response = requests.get(MEDIASTACK_BASE_URL, params=params)
         response.raise_for_status()
